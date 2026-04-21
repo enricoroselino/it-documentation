@@ -31,6 +31,7 @@ sudo iptables -A FORWARD \
 -j ACCEPT
 
 
+# TCP
 sudo iptables -t nat -A PREROUTING \
 -i eth0 -p tcp --dport 29000 \
 -j DNAT --to-destination 100.94.254.22:29000
@@ -41,5 +42,26 @@ sudo iptables -A FORWARD \
 -d 100.94.254.22 \
 -j ACCEPT
 
+# UDP
+sudo iptables -t nat -A PREROUTING \
+-i eth0 -p udp --dport 29000 \
+-j DNAT --to-destination 100.94.254.22:29000
+
+sudo iptables -A FORWARD \
+-i eth0 -o tailscale0 \
+-p udp --dport 29000 \
+-d 100.94.254.22 \
+-j ACCEPT
+
+
 ========= SAVE
 sudo netfilter-persistent save
+
+
+========= DELETE STEPS
+Cek pake angka, nanti deletenya pake angka juga
+sudo iptables -t nat -L PREROUTING --line-numbers
+sudo iptables -L FORWARD --line-numbers
+
+sudo iptables -t nat -D PREROUTING 3
+sudo iptables -D FORWARD 5
