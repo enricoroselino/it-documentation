@@ -1,108 +1,106 @@
-sudo tee /etc/sysctl.d/99-game-server.conf > /dev/null <<'EOF'
-# ========================================
-# Game Server Optimization (UDP-focused)
-# For PUBLIC FACING MMORPG Server with AFK Grinding
-# Ubuntu 24.04 - 64GB RAM system
-# ========================================
+ sudo tee /etc/sysctl.d/99-game-server.conf > /dev/null <<'EOF'
+  # ========================================
+  # Game Server VPS (Frontend/Forwarder)
+  # 1GB RAM - Forward traffic to homelab via Tailscale
+  # Ubuntu 24.04
+  # ========================================
 
-# === UDP Buffer Tuning (CRITICAL for game) ===
-# Large buffers prevent packet drops during bursts
-net.core.rmem_max = 134217728
-net.core.wmem_max = 134217728
-net.core.rmem_default = 16777216
-net.core.wmem_default = 16777216
-net.ipv4.udp_rmem_min = 8192
-net.ipv4.udp_wmem_min = 8192
+  # === UDP Buffer Tuning (Conservative for 1GB RAM) ===
+  # Smaller buffers but still functional for forwarding
+  net.core.rmem_max = 16777216
+  net.core.wmem_max = 16777216
+  net.core.rmem_default = 2097152
+  net.core.wmem_default = 2097152
+  net.ipv4.udp_rmem_min = 4096
+  net.ipv4.udp_wmem_min = 4096
 
-# === Network Queue & Device Tuning ===
-# Handle packet bursts without drops
-net.core.netdev_max_backlog = 16384
-net.core.netdev_budget = 600
-net.core.netdev_budget_usecs = 8000
+  # === Network Queue & Device Tuning ===
+  # Moderate for forwarding role
+  net.core.netdev_max_backlog = 8192
+  net.core.netdev_budget = 300
+  net.core.netdev_budget_usecs = 4000
 
-# === Connection Tracking (CRITICAL for AFK grinding) ===
-# Very high capacity for long-lived sessions
-net.netfilter.nf_conntrack_max = 524288
+  # === Connection Tracking (LIMITED by 1GB RAM) ===
+  # Lower capacity - VPS just forwards, doesn't process game logic
+  net.netfilter.nf_conntrack_max = 131072
 
-# TCP: Keep established connections longer (default 5 days too much, but keep substantial)
-net.netfilter.nf_conntrack_tcp_timeout_established = 7200  # 2 hours
+  # TCP timeout
+  net.netfilter.nf_conntrack_tcp_timeout_established = 3600  # 1 hour (was 2h)
 
-# UDP: LONG timeout for AFK players grinding
-# Default is 30s which kills idle UDP sessions - we need MUCH longer
-net.netfilter.nf_conntrack_udp_timeout = 600              # 10 minutes for regular UDP
-net.netfilter.nf_conntrack_udp_timeout_stream = 7200      # 2 hours for established UDP streams
+  # UDP: Still need reasonable timeout for forwarding
+  net.netfilter.nf_conntrack_udp_timeout = 300
+  net.netfilter.nf_conntrack_udp_timeout_stream = 3600
 
-# Generic timeout (for other protocols)
-net.netfilter.nf_conntrack_generic_timeout = 600
+  # Generic timeout
+  net.netfilter.nf_conntrack_generic_timeout = 300
 
-# === TCP Tuning (for control connections) ===
-# Security + Performance balance
-net.ipv4.tcp_syncookies = 1
-net.ipv4.tcp_max_syn_backlog = 8192
-net.core.somaxconn = 4096
-net.ipv4.tcp_synack_retries = 2
-net.ipv4.tcp_syn_retries = 3
+  # === TCP Tuning (Conservative) ===
+  net.ipv4.tcp_syncookies = 1
+  net.ipv4.tcp_max_syn_backlog = 4096
+  net.core.somaxconn = 2048
+  net.ipv4.tcp_synack_retries = 2
+  net.ipv4.tcp_syn_retries = 3
 
-# TCP buffer sizes
-net.ipv4.tcp_rmem = 4096 87380 134217728
-net.ipv4.tcp_wmem = 4096 65536 134217728
+  # TCP buffer sizes - much smaller for 1GB RAM
+  net.ipv4.tcp_rmem = 4096 87380 16777216
+  net.ipv4.tcp_wmem = 4096 65536 16777216
 
-# TCP connection lifecycle
-net.ipv4.tcp_fin_timeout = 30
-net.ipv4.tcp_keepalive_time = 600
-net.ipv4.tcp_keepalive_probes = 3
-net.ipv4.tcp_keepalive_intvl = 30
+  # TCP connection lifecycle
+  net.ipv4.tcp_fin_timeout = 20
+  net.ipv4.tcp_keepalive_time = 300
+  net.ipv4.tcp_keepalive_probes = 3
+  net.ipv4.tcp_keepalive_intvl = 20
 
-# BBR congestion control (better latency)
-net.ipv4.tcp_congestion_control = bbr
-net.core.default_qdisc = fq
+  # BBR congestion control
+  net.ipv4.tcp_congestion_control = bbr
+  net.core.default_qdisc = fq
 
-# Protect against TIME_WAIT assassination
-net.ipv4.tcp_rfc1337 = 1
+  # Protect against TIME_WAIT assassination
+  net.ipv4.tcp_rfc1337 = 1
 
-# === ICMP Tuning ===
-# Allow diagnostics while preventing abuse
-net.ipv4.icmp_echo_ignore_broadcasts = 1
-net.ipv4.icmp_ratelimit = 100
-net.ipv4.icmp_ignore_bogus_error_responses = 1
+  # === ICMP Tuning ===
+  net.ipv4.icmp_echo_ignore_broadcasts = 1
+  net.ipv4.icmp_ratelimit = 100
+  net.ipv4.icmp_ignore_bogus_error_responses = 1
 
-# === Security Hardening (PUBLIC FACING) ===
-# Anti-spoofing protection
-net.ipv4.conf.all.rp_filter = 1
-net.ipv4.conf.default.rp_filter = 1
+  # === Security Hardening (PUBLIC FACING) ===
+  # Anti-spoofing protection
+  net.ipv4.conf.all.rp_filter = 1
+  net.ipv4.conf.default.rp_filter = 1
 
-# Ignore redirects (prevent MITM)
-net.ipv4.conf.all.accept_redirects = 0
-net.ipv4.conf.default.accept_redirects = 0
-net.ipv4.conf.all.secure_redirects = 0
-net.ipv4.conf.default.secure_redirects = 0
+  # Ignore redirects (prevent MITM)
+  net.ipv4.conf.all.accept_redirects = 0
+  net.ipv4.conf.default.accept_redirects = 0
+  net.ipv4.conf.all.secure_redirects = 0
+  net.ipv4.conf.default.secure_redirects = 0
 
-# Don't send redirects
-net.ipv4.conf.all.send_redirects = 0
-net.ipv4.conf.default.send_redirects = 0
+  # Don't send redirects
+  net.ipv4.conf.all.send_redirects = 0
+  net.ipv4.conf.default.send_redirects = 0
 
-# Source routing protection
-net.ipv4.conf.all.accept_source_route = 0
-net.ipv4.conf.default.accept_source_route = 0
+  # Source routing protection
+  net.ipv4.conf.all.accept_source_route = 0
+  net.ipv4.conf.default.accept_source_route = 0
 
-# Log suspicious packets
-net.ipv4.conf.all.log_martians = 1
-net.ipv4.conf.default.log_martians = 1
+  # Log suspicious packets
+  net.ipv4.conf.all.log_martians = 1
+  net.ipv4.conf.default.log_martians = 1
 
-# === IPv6 Security (if enabled) ===
-# Disable IPv6 if not used (reduces attack surface)
-net.ipv6.conf.all.disable_ipv6 = 1
-net.ipv6.conf.default.disable_ipv6 = 1
+  # === IPv6 ===
+  net.ipv6.conf.all.disable_ipv6 = 1
+  net.ipv6.conf.default.disable_ipv6 = 1
 
-# === Additional Performance Tuning ===
-# Increase local port range for high connection count
-net.ipv4.ip_local_port_range = 10000 65535
+  # === Performance Tuning (Memory-conscious) ===
+  net.ipv4.ip_local_port_range = 15000 65535
+  net.ipv4.tcp_tw_reuse = 1
+  net.ipv4.tcp_retries2 = 6
 
-# Enable fast socket recycling
-net.ipv4.tcp_tw_reuse = 1
+  # === Memory Pressure Management ===
+  # More aggressive memory reclaim for 1GB system
+  vm.min_free_kbytes = 65536
+  vm.swappiness = 10
+  vm.vfs_cache_pressure = 50
 
-# Faster detection of dead connections
-net.ipv4.tcp_retries2 = 8
-EOF
-
-sudo sysctl --system
+  # === IPv4 Forwarding (REQUIRED for VPS forwarder) ===
+  net.ipv4.ip_forward = 1
+  EOF
