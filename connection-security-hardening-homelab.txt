@@ -1,0 +1,137 @@
+sudo tee /etc/sysctl.d/99-game-server-homelab.conf > /dev/null <<'EOF'
+# ========================================
+# Game Server HOMELAB (Backend)
+# 64GB RAM - Receives ALL traffic from 1 Tailscale IP
+# SPECIAL: All players appear as same source IP
+# For MMORPG with AFK Grinding
+# Ubuntu 24.04
+# ========================================
+
+# === UDP Buffer Tuning (MASSIVE - many connections from 1 IP) ===
+net.core.rmem_max = 268435456          # 256MB
+net.core.wmem_max = 268435456          # 256MB
+net.core.rmem_default = 33554432       # 32MB
+net.core.wmem_default = 33554432       # 32MB
+net.ipv4.udp_rmem_min = 16384
+net.ipv4.udp_wmem_min = 16384
+
+# === Network Queue & Device Tuning ===
+# Higher because ALL traffic comes in bursts from 1 IP
+net.core.netdev_max_backlog = 65536    # was 32k, doubled
+net.core.netdev_budget = 2000          # was 1200, increased
+net.core.netdev_budget_usecs = 20000   # was 16000
+
+# === Connection Tracking (CRITICAL for port-based differentiation) ===
+# VERY HIGH - kernel must track by port pairs, not just IPs
+net.netfilter.nf_conntrack_max = 2097152  # 2M (was 1M) - many ports from same IP
+
+# Conntrack hash table size (important for 1-IP scenario)
+# This helps kernel efficiently track many connections from same source IP
+net.netfilter.nf_conntrack_buckets = 524288
+
+# TCP timeout
+net.netfilter.nf_conntrack_tcp_timeout_established = 7200  # 2 hours
+
+# UDP: EXTRA LONG for AFK grinding from same source IP
+# Kernel differentiates by port, so we need LONG timeout
+net.netfilter.nf_conntrack_udp_timeout = 1800             # 30 minutes (was 20)
+net.netfilter.nf_conntrack_udp_timeout_stream = 28800     # 8 hours (was 4h)
+
+# Generic timeout
+net.netfilter.nf_conntrack_generic_timeout = 1800
+
+# === Port Range (CRITICAL - need many ports for same-IP connections) ===
+# Game server needs to handle many concurrent connections from 1 source IP
+# Differentiated only by destination port
+net.ipv4.ip_local_port_range = 1024 65535  # Maximum range
+
+# === TCP Tuning ===
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_max_syn_backlog = 32768   # was 16k, doubled for 1-IP scenario
+net.core.somaxconn = 16384             # was 8k, doubled
+net.ipv4.tcp_synack_retries = 2
+net.ipv4.tcp_syn_retries = 3
+
+# TCP buffer sizes - LARGE
+net.ipv4.tcp_rmem = 8192 174760 268435456
+net.ipv4.tcp_wmem = 8192 131072 268435456
+
+# TCP connection lifecycle
+net.ipv4.tcp_fin_timeout = 30
+net.ipv4.tcp_keepalive_time = 300
+net.ipv4.tcp_keepalive_probes = 5
+net.ipv4.tcp_keepalive_intvl = 20
+
+# BBR congestion control
+net.ipv4.tcp_congestion_control = bbr
+net.core.default_qdisc = fq
+net.ipv4.tcp_rfc1337 = 1
+
+# Fast socket reuse (IMPORTANT for many connections from same IP)
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.tcp_tw_recycle = 0  # Disabled - dangerous with NAT/same-IP scenario
+
+# === ICMP Tuning ===
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.icmp_ratelimit = 50
+net.ipv4.icmp_ignore_bogus_error_responses = 1
+
+# === Security (Relaxed - behind VPS + Tailscale) ===
+# IMPORTANT: Relax rp_filter for asymmetric routing via Tailscale
+net.ipv4.conf.all.rp_filter = 2        # was 1, now loose mode
+net.ipv4.conf.default.rp_filter = 2    # loose mode for VPN
+net.ipv4.conf.tailscale0.rp_filter = 2 # loose mode on Tailscale interface
+
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+
+# No martian logging (1-IP VPN traffic will trigger false positives)
+net.ipv4.conf.all.log_martians = 0
+net.ipv4.conf.default.log_martians = 0
+
+# === IPv6 ===
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+
+# === Performance Tuning ===
+net.ipv4.tcp_retries2 = 8
+
+# Disable slow start after idle
+net.ipv4.tcp_slow_start_after_idle = 0
+
+# Optimize for high packet rate from single source
+net.ipv4.tcp_timestamps = 1
+net.ipv4.tcp_window_scaling = 1
+net.ipv4.tcp_sack = 1
+
+# === File Descriptor Limits (CRITICAL for many connections) ===
+fs.file-max = 4194304  # was 2M, doubled
+
+# === Shared Memory (for game server) ===
+kernel.shmmax = 68719476736
+kernel.shmall = 4294967296
+
+# === Process Limits ===
+kernel.pid_max = 4194304
+
+# === ARP Cache (important for Tailscale) ===
+net.ipv4.neigh.default.gc_thresh1 = 4096   # was 2048
+net.ipv4.neigh.default.gc_thresh2 = 8192   # was 4096
+net.ipv4.neigh.default.gc_thresh3 = 16384  # was 8192
+
+# === Hash Table Sizes (CRITICAL for 1-IP many-ports scenario) ===
+# Help kernel efficiently lookup connections
+net.ipv4.tcp_max_tw_buckets = 2000000  # was default, increased
+net.core.netdev_budget_usecs = 20000
+
+# === Per-connection Buffer Limits ===
+# Don't let single connection hog all memory
+net.ipv4.tcp_limit_output_bytes = 262144
+
+# === Receive Packet Steering (multi-core optimization) ===
+# Distribute packet processing across CPU cores
+# (Actual RPS/RFS setup done via /sys, this is kernel params)
+net.core.rps_sock_flow_entries = 32768
+EOF
