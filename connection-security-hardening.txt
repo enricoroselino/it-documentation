@@ -3,54 +3,67 @@ sudo tee /etc/sysctl.d/99-game-server.conf > /dev/null <<'EOF'
 # Game Server VPS (Frontend/Forwarder)
 # 1 CPU / 1GB RAM - Forward traffic to homelab via Tailscale
 # Ubuntu 24.04
-# Public-facing forwarder optimized for single-core low memory
+# Optimized for 24/7 grinding with multiple game accounts
 # ========================================
 
 # === IPv4 Forwarding (REQUIRED for VPS forwarder) ===
 net.ipv4.ip_forward = 1
 
-# === UDP Buffer Tuning (Conservative for 1GB RAM) ===
-# Smaller buffers appropriate for single-core forwarding
+# === UDP Buffer Tuning (Optimized for Game Server) ===
+# UDP is critical for game traffic - prioritize over TCP
 net.core.rmem_max = 8388608
 net.core.wmem_max = 8388608
 net.core.rmem_default = 1048576
 net.core.wmem_default = 1048576
-net.ipv4.udp_rmem_min = 4096
-net.ipv4.udp_wmem_min = 4096
+
+# UDP-specific buffer sizes (increase for game traffic)
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 8192
+
+# UDP memory limits (pages) - reserve more for UDP
+# Each page is typically 4KB, so this is ~64MB max for UDP
+net.ipv4.udp_mem = 4096 8192 16384
 
 # === UDP Optimization for Game Traffic ===
 # Prevent UDP packet drops under load
 net.ipv4.udp_early_demux = 1
 net.ipv4.udp_l3mdev_accept = 0
 
+# Increase UDP queue size to prevent drops during bursts
+# This is critical for game servers with sudden traffic spikes
+# Note: Set via socket option SO_RCVBUF or via application
+
 # === Network Queue & Device Tuning ===
-# Reduced for single-core CPU
-net.core.netdev_max_backlog = 4096
+# Increased slightly for UDP game traffic bursts
+net.core.netdev_max_backlog = 5000
 net.core.netdev_budget = 150
 net.core.netdev_budget_usecs = 2000
 
 # Optimize packet processing for single CPU
 net.core.dev_weight = 32
 
-# === Connection Tracking (LIMITED by 1GB RAM + 1 CPU) ===
-# Lower capacity for single-core VPS that only forwards
-net.netfilter.nf_conntrack_max = 65536
+# Increase max socket receive buffer (for UDP games)
+net.core.optmem_max = 65536
+
+# === Connection Tracking (Optimized for multiple game accounts) ===
+# Increased for multiple simultaneous game sessions (24/7 grinding)
+net.netfilter.nf_conntrack_max = 98304
 
 # Note: nf_conntrack_buckets must be set via module parameter:
-# echo "options nf_conntrack hashsize=16384" | sudo tee /etc/modprobe.d/nf_conntrack.conf
+# echo "options nf_conntrack hashsize=24576" | sudo tee /etc/modprobe.d/nf_conntrack.conf
 
 # Aggressive timeout for unknown protocols to free memory
 net.netfilter.nf_conntrack_generic_timeout = 180
 
-# TCP timeout
-net.netfilter.nf_conntrack_tcp_timeout_established = 3600  # 1 hour (was 2h)
+# TCP timeout - reasonable for game launchers and updates
+net.netfilter.nf_conntrack_tcp_timeout_established = 7200  # 2 hours for long sessions
 net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
 net.netfilter.nf_conntrack_tcp_timeout_close_wait = 30
 net.netfilter.nf_conntrack_tcp_timeout_fin_wait = 30
 
-# UDP: Still need reasonable timeout for forwarding
-net.netfilter.nf_conntrack_udp_timeout = 300
-net.netfilter.nf_conntrack_udp_timeout_stream = 3600
+# UDP: Extended timeouts for game sessions (critical for 24/7 grinding)
+net.netfilter.nf_conntrack_udp_timeout = 600        # 10 minutes (up from 5)
+net.netfilter.nf_conntrack_udp_timeout_stream = 7200  # 2 hours (up from 1)
 
 # ICMP timeout (lower for forwarding)
 net.netfilter.nf_conntrack_icmp_timeout = 30
@@ -58,32 +71,32 @@ net.netfilter.nf_conntrack_icmp_timeout = 30
 # Connection tracking helpers (disable unused protocols to save memory)
 # These should be set via /etc/modprobe.d/ if needed
 
-# === TCP Tuning (Conservative) ===
+# === TCP Tuning (Balanced for game traffic + multiple accounts) ===
 net.ipv4.tcp_syncookies = 1
 net.ipv4.tcp_max_syn_backlog = 2048
 net.core.somaxconn = 1024
 net.ipv4.tcp_synack_retries = 2
 net.ipv4.tcp_syn_retries = 3
 
-# TCP buffer sizes - reduced for 1 CPU / 1GB RAM
+# TCP buffer sizes - balanced for 1GB RAM with multiple connections
 net.ipv4.tcp_rmem = 4096 87380 8388608
 net.ipv4.tcp_wmem = 4096 65536 8388608
 
-# TCP memory limits (critical for 1GB system)
+# TCP memory limits (increased slightly for multiple game accounts)
 # min: below this, TCP doesn't throttle
 # pressure: start applying pressure
-# max: hard limit (reduced for single CPU)
-net.ipv4.tcp_mem = 32768 65536 131072
+# max: hard limit
+net.ipv4.tcp_mem = 49152 98304 196608
 
-# Limit orphaned connections (memory leak prevention)
-net.ipv4.tcp_max_orphans = 4096
-net.ipv4.tcp_max_tw_buckets = 8192
+# Limit orphaned connections (increased for multiple accounts)
+net.ipv4.tcp_max_orphans = 8192
+net.ipv4.tcp_max_tw_buckets = 16384
 
-# TCP connection lifecycle
+# TCP connection lifecycle - balanced for long-running game sessions
 net.ipv4.tcp_fin_timeout = 20
-net.ipv4.tcp_keepalive_time = 300
-net.ipv4.tcp_keepalive_probes = 3
-net.ipv4.tcp_keepalive_intvl = 20
+net.ipv4.tcp_keepalive_time = 600    # 10 minutes (increased for stability)
+net.ipv4.tcp_keepalive_probes = 5    # More probes before declaring dead
+net.ipv4.tcp_keepalive_intvl = 30    # Longer interval between probes
 
 # Fast recycling of TIME_WAIT sockets
 net.ipv4.tcp_tw_reuse = 1
@@ -202,11 +215,11 @@ kernel.panic = 10
 kernel.panic_on_oops = 1
 
 # === Process Limits ===
-# Reduce max PIDs to save memory (single CPU)
-kernel.pid_max = 8192
+# Increased for multiple game accounts running 24/7
+kernel.pid_max = 12288
 
-# File descriptor limits (reduced for single-core forwarding)
-fs.file-max = 32768
+# File descriptor limits (increased for multiple connections)
+fs.file-max = 49152
 
 # Inotify limits (reduce if not using file watching)
 fs.inotify.max_user_watches = 4096
