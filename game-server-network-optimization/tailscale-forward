@@ -1,0 +1,35 @@
+# =========================================================
+# DNAT: Forward semua TCP kecuali port 22 ke VPS2
+# =========================================================
+
+sudo iptables -t nat -A PREROUTING \
+  -i eth0 \
+  -p tcp ! --dport 22 \
+  -j DNAT --to-destination 100.66.95.80
+
+# =========================================================
+# DNAT: Forward semua UDP kecuali port 22 ke VPS2
+# =========================================================
+
+sudo iptables -t nat -A PREROUTING \
+  -i eth0 \
+  -p udp ! --dport 22 \
+  -j DNAT --to-destination 100.66.95.80
+
+# =========================================================
+# SNAT/MASQUERADE:
+# Pastikan balasan dari VPS2 kembali melalui VPS1
+# =========================================================
+
+sudo iptables -t nat -A POSTROUTING \
+  -o tailscale0 \
+  -d 100.66.95.80 \
+  -j MASQUERADE
+
+# =========================================================
+# Persist iptables rules
+# =========================================================
+
+sudo apt update
+sudo apt install -y iptables-persistent
+sudo netfilter-persistent save
